@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Configuration;
@@ -144,13 +144,13 @@ namespace AwsEC2Sample1
         }
 
         /// <summary>
-        /// Gets S3BucketName from Configuration
+        /// Gets AWSSamplePrefix from Configuration
         /// </summary>
-        public static string S3BucketName
+        public static string AWSSamplePrefix
         {
             get
             {
-                return AWSConfigSettings.AWSConfigGetKey("S3BucketName");
+                return AWSConfigSettings.AWSConfigGetKey("AWSSamplePrefix");
             }
 
         }
