@@ -1,4 +1,4 @@
-﻿/*******************************************************************************
+/*******************************************************************************
 * Copyright 2009-2013 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 * 
 * Licensed under the Apache License, Version 2.0 (the "License"). You may
@@ -31,6 +31,7 @@ using Amazon.Auth.AccessControlPolicy.ActionIdentifiers;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Amazon.S3.Util;
+using System.IO;
 
 namespace AwsEC2Sample1
 {
@@ -42,6 +43,11 @@ namespace AwsEC2Sample1
     {       
 
         static readonly string RESOURCDE_POSTFIX = DateTime.Now.Ticks.ToString();
+        static readonly string SAMPLE_PREFIX = AWSConfigSettings.AWSSamplePrefix;
+        static readonly string SAMPLE_NAME = SAMPLE_PREFIX + DateTime.Now.ToShortDateString();
+        static readonly string SAMPLE_LONG_UNIQUE_NAME = SAMPLE_PREFIX + RESOURCDE_POSTFIX;
+        const bool CREATE_AND_SAVE_KEY_PAIR = true;
+
 
         public static void Main(string[] args)
         {
@@ -53,7 +59,7 @@ namespace AwsEC2Sample1
             Amazon.Runtime.AWSCredentials credentials = new Amazon.Runtime.StoredProfileAWSCredentials(awsProfileName);
             AmazonEC2Client ec2 = new AmazonEC2Client(credentials, config);
 
-            var bucketName = AWSConfigSettings.S3BucketName + "-" + RESOURCDE_POSTFIX;
+            var bucketName = SAMPLE_LONG_UNIQUE_NAME;
 
             var ec2Client = new AmazonEC2Client();
 
@@ -64,25 +70,51 @@ namespace AwsEC2Sample1
             // Create an IAM role
             var instanceProfileArn = CreateInstanceProfile();
             Console.WriteLine("Created Instance Profile: {0}", instanceProfileArn);
-            
+
             Thread.Sleep(15000);
 
-            // Create key pair
-            var keyPair = ec2Client.CreateKeyPair(new CreateKeyPairRequest { KeyName = "ec2-sample-" + RESOURCDE_POSTFIX }).KeyPair;
+            // Check existing keypairs
+            string keyPairName = SAMPLE_LONG_UNIQUE_NAME;
 
+            var dkpRequest = new DescribeKeyPairsRequest();
+            var dkpResponse = ec2Client.DescribeKeyPairs(dkpRequest);
+            List<KeyPairInfo> myKeyPairs = dkpResponse.KeyPairs;
+            foreach (KeyPairInfo item in myKeyPairs)
+            {
+                Console.WriteLine("Existing key pair: " + item.KeyName);
+            }
+
+            // Create new KeyPair
+            KeyPair newKeyPair = null;
+            CreateKeyPairRequest newKeyRequest = new CreateKeyPairRequest() { KeyName = keyPairName };
+            CreateKeyPairResponse ckpResponse = ec2Client.CreateKeyPair(newKeyRequest);
+            // store the received new Key   
+            newKeyPair = ckpResponse.KeyPair;
+            Console.WriteLine();
+            Console.WriteLine("New key: " + keyPairName);
+            // Save the private key in a .pem file
+            using (FileStream s = new FileStream(keyPairName + ".pem", FileMode.Create))
+            {
+                using (StreamWriter writer = new StreamWriter(s))
+                {
+                    writer.WriteLine(newKeyPair.KeyMaterial);
+                }
+            }
+
+            // run ec2 instance request with existing or new generated keypair
             var runRequest = new RunInstancesRequest
             {
                 ImageId = imageId,
                 MinCount = 1,
                 MaxCount = 1,
-                KeyName = keyPair.KeyName,
+                KeyName = newKeyPair.KeyName, //keyPair.KeyName,
                 IamInstanceProfile = new IamInstanceProfileSpecification { Arn = instanceProfileArn },
 
                 // Add the region for the S3 bucket and the name of the bucket to create
                 UserData = EncodeToBase64(
                     string.Format(
-                        AWSConfigSettings.POWERSHELL_S3_BUCKET_SCRIPT, 
-                        AWSConfigSettings.AWSRegionEndpoint.SystemName, 
+                        AWSConfigSettings.POWERSHELL_S3_BUCKET_SCRIPT,
+                        AWSConfigSettings.AWSRegionEndpoint.SystemName,
                         bucketName)
                     )
             };
@@ -120,11 +152,60 @@ namespace AwsEC2Sample1
                     // Make sure we actually got a password
                     if (passwordResponse.PasswordData != null)
                     {
-                        var password = passwordResponse.GetDecryptedPassword(keyPair.KeyMaterial);
+                        var password = passwordResponse.GetDecryptedPassword(newKeyPair.KeyMaterial);
                         Console.WriteLine("The Windows Administrator password is: {0}", password);
                     }
                 }
             } while (instance.State.Name == "pending" || instance.State.Name == "running");
+
+
+            // Create new security Group 
+            try
+            {
+                CreateSecurityGroupRequest securityGroupRequest = new CreateSecurityGroupRequest();
+                securityGroupRequest.GroupName = SAMPLE_NAME;
+                securityGroupRequest.Description = SAMPLE_LONG_UNIQUE_NAME;
+                ec2.CreateSecurityGroup(securityGroupRequest);
+            }
+            catch (AmazonEC2Exception ae)
+            {
+                if (string.Equals(ae.ErrorCode, "InvalidGroup.Duplicate", StringComparison.InvariantCulture))
+                    Console.WriteLine(ae.Message);
+                else throw;
+            }
+
+            // add ip ranges
+            String ipSource = "0.0.0.0/0";
+            List<String> ipRanges = new List<String>();
+            ipRanges.Add(ipSource);
+
+            List<IpPermission> ipPermissions = new List<IpPermission>();
+            IpPermission tcpSSH = new IpPermission() { IpProtocol = "tcp", FromPort = 22, ToPort = 22, IpRanges = ipRanges };
+            ipPermissions.Add(tcpSSH);
+            IpPermission tcpHTTP = new IpPermission() { IpProtocol = "tcp", FromPort = 80, ToPort = 80, IpRanges = ipRanges };
+            ipPermissions.Add(tcpHTTP);
+            IpPermission tcpHTTPS = new IpPermission() { IpProtocol = "tcp", FromPort = 443, ToPort = 443, IpRanges = ipRanges };
+            ipPermissions.Add(tcpHTTPS);
+            IpPermission tcpMYSQL = new IpPermission() { IpProtocol = "tcp", FromPort = 3306, ToPort = 3306, IpRanges = ipRanges };
+            ipPermissions.Add(tcpMYSQL);
+            IpPermission tcpRDP = new IpPermission() { IpProtocol = "tcp", FromPort = 3389, ToPort = 3389, IpRanges = ipRanges };
+            ipPermissions.Add(tcpRDP);
+
+            try
+            {
+                // Authorize the ports to be used.
+                AuthorizeSecurityGroupIngressRequest ipPermissionsRequest = new AuthorizeSecurityGroupIngressRequest();
+                ipPermissionsRequest.IpPermissions = ipPermissions;
+                ipPermissionsRequest.GroupName = SAMPLE_NAME;
+                ec2.AuthorizeSecurityGroupIngress(ipPermissionsRequest);
+            }
+            catch (AmazonEC2Exception ae)
+            {
+                if (String.Equals(ae.ErrorCode, "InvalidPermission.Duplicate", StringComparison.InvariantCulture))
+                    Console.WriteLine(ae.Message);
+                else
+                    throw;
+            }
 
             // Terminate instance
             ec2Client.TerminateInstances(new TerminateInstancesRequest
@@ -133,7 +214,7 @@ namespace AwsEC2Sample1
             });
 
             // Delete key pair created for sample.
-            ec2Client.DeleteKeyPair(new DeleteKeyPairRequest { KeyName = keyPair.KeyName });
+            ec2Client.DeleteKeyPair(new DeleteKeyPairRequest { KeyName = newKeyPair.KeyName });
 
             var s3Client = new AmazonS3Client();
             var listResponse = s3Client.ListObjects(new ListObjectsRequest
@@ -162,7 +243,7 @@ namespace AwsEC2Sample1
         /// <returns></returns>
         static string CreateInstanceProfile()
         {
-            var roleName = "ec2-sample-" + RESOURCDE_POSTFIX;
+            var roleName = SAMPLE_NAME;
             var client = new AmazonIdentityManagementServiceClient();
             client.CreateRole(new CreateRoleRequest
             {
@@ -204,7 +285,7 @@ namespace AwsEC2Sample1
         /// </summary>
         static void DeleteInstanceProfile()
         {
-            var roleName = "ec2-sample-" + RESOURCDE_POSTFIX;
+            var roleName = SAMPLE_NAME;
             var client = new AmazonIdentityManagementServiceClient();
 
             client.DeleteRolePolicy(new DeleteRolePolicyRequest
