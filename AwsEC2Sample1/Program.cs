@@ -44,7 +44,8 @@ namespace AwsEC2Sample1
 
         static readonly string RESOURCDE_POSTFIX = DateTime.Now.Ticks.ToString();
         static readonly string SAMPLE_PREFIX = AWSConfigSettings.AWSSamplePrefix;
-        static readonly string SAMPLE_NAME = SAMPLE_PREFIX + DateTime.Now.ToShortDateString();
+        static readonly string SAMPLE_NAME = SAMPLE_PREFIX +
+            DateTime.Now.ToShortDateString() + "_" + DateTime.Now.ToShortTimeString().Replace(":", ".");
         static readonly string SAMPLE_LONG_UNIQUE_NAME = SAMPLE_PREFIX + RESOURCDE_POSTFIX;
         const bool CREATE_AND_SAVE_KEY_PAIR = true;
 
@@ -57,11 +58,10 @@ namespace AwsEC2Sample1
             AmazonEC2Config config = new AmazonEC2Config();
             config.ServiceURL = AWSConfigSettings.AWSServiceUrl;
             Amazon.Runtime.AWSCredentials credentials = new Amazon.Runtime.StoredProfileAWSCredentials(awsProfileName);
-            AmazonEC2Client ec2 = new AmazonEC2Client(credentials, config);
+            // AmazonEC2Client ec2Client = new AmazonEC2Client(credentials, config);
+            AmazonEC2Client ec2Client = new AmazonEC2Client();
 
-            var bucketName = SAMPLE_LONG_UNIQUE_NAME;
-
-            var ec2Client = new AmazonEC2Client();
+            var bucketName = SAMPLE_LONG_UNIQUE_NAME;            
 
             // Get latest 2012 Base AMI
             var imageId = ImageUtilities.FindImage(ec2Client, ImageUtilities.WINDOWS_2012_BASE).ImageId;
@@ -92,13 +92,75 @@ namespace AwsEC2Sample1
             newKeyPair = ckpResponse.KeyPair;
             Console.WriteLine();
             Console.WriteLine("New key: " + keyPairName);
+            Console.WriteLine("fingerprint: " + newKeyPair.KeyFingerprint);
+            Console.WriteLine();
             // Save the private key in a .pem file
             using (FileStream s = new FileStream(keyPairName + ".pem", FileMode.Create))
             {
                 using (StreamWriter writer = new StreamWriter(s))
                 {
                     writer.WriteLine(newKeyPair.KeyMaterial);
+                    Console.WriteLine(newKeyPair.KeyMaterial);
                 }
+            }
+
+            string secGroupId = string.Empty;
+            // Create new security Group 
+            try
+            {
+                CreateSecurityGroupRequest securityGroupRequest = new CreateSecurityGroupRequest();
+                securityGroupRequest.GroupName = SAMPLE_NAME;
+                securityGroupRequest.Description = SAMPLE_LONG_UNIQUE_NAME;
+                CreateSecurityGroupResponse secRes =  ec2Client.CreateSecurityGroup(securityGroupRequest);
+                Console.WriteLine("Created security Group with GroupId " + secRes.GroupId);
+                secGroupId = secRes.GroupId;   
+                Console.WriteLine(secRes.ResponseMetadata);
+            }
+            catch (AmazonEC2Exception ae)
+            {
+                if (string.Equals(ae.ErrorCode, "InvalidGroup.Duplicate", StringComparison.InvariantCulture))
+                    Console.WriteLine(ae.Message);
+                else throw;
+            }
+
+            // add ip ranges
+            String ipSource = "0.0.0.0/0";
+            List<String> ipRanges = new List<String>();
+            ipRanges.Add(ipSource);
+
+            List<IpPermission> ipPermissions = new List<IpPermission>();
+            IpPermission tcpSSH = new IpPermission() { IpProtocol = "tcp", FromPort = 22, ToPort = 22, IpRanges = ipRanges };
+            ipPermissions.Add(tcpSSH);
+            IpPermission tcpHTTP = new IpPermission() { IpProtocol = "tcp", FromPort = 80, ToPort = 80, IpRanges = ipRanges };
+            ipPermissions.Add(tcpHTTP);
+            IpPermission tcpHTTPS = new IpPermission() { IpProtocol = "tcp", FromPort = 443, ToPort = 443, IpRanges = ipRanges };
+            ipPermissions.Add(tcpHTTPS);
+            IpPermission tcpMYSQL = new IpPermission() { IpProtocol = "tcp", FromPort = 3306, ToPort = 3306, IpRanges = ipRanges };
+            ipPermissions.Add(tcpMYSQL);
+            IpPermission tcpRDP = new IpPermission() { IpProtocol = "tcp", FromPort = 3389, ToPort = 3389, IpRanges = ipRanges };
+            ipPermissions.Add(tcpRDP);
+
+            try
+            {
+                // Authorize the ports to be used.
+
+                AuthorizeSecurityGroupIngressRequest ipPermissionsRequest = new AuthorizeSecurityGroupIngressRequest();
+                ipPermissionsRequest.IpPermissions = ipPermissions;
+                ipPermissionsRequest.GroupName = SAMPLE_NAME;
+                if (!string.IsNullOrEmpty(secGroupId)) {
+                    ipPermissionsRequest.GroupId = secGroupId;
+                }
+                AuthorizeSecurityGroupIngressResponse authResp = ec2Client.AuthorizeSecurityGroupIngress(ipPermissionsRequest);
+                
+                Console.WriteLine("Auth SecurityGroup Request HttpStatusCode " + authResp.HttpStatusCode + " ");
+                Console.WriteLine(authResp.ResponseMetadata);
+            }
+            catch (AmazonEC2Exception ae)
+            {
+                if (String.Equals(ae.ErrorCode, "InvalidPermission.Duplicate", StringComparison.InvariantCulture))
+                    Console.WriteLine(ae.Message);
+                else
+                    throw;
             }
 
             // run ec2 instance request with existing or new generated keypair
@@ -108,8 +170,8 @@ namespace AwsEC2Sample1
                 MinCount = 1,
                 MaxCount = 1,
                 KeyName = newKeyPair.KeyName, //keyPair.KeyName,
-                IamInstanceProfile = new IamInstanceProfileSpecification { Arn = instanceProfileArn },
-
+                IamInstanceProfile = new IamInstanceProfileSpecification { Arn = instanceProfileArn },                            
+                    
                 // Add the region for the S3 bucket and the name of the bucket to create
                 UserData = EncodeToBase64(
                     string.Format(
@@ -118,6 +180,12 @@ namespace AwsEC2Sample1
                         bucketName)
                     )
             };
+
+            // add secGroupId
+            if (!string.IsNullOrEmpty(secGroupId)) {
+                runRequest.SecurityGroupIds.Add(secGroupId);
+            }
+            
             var instanceId = ec2Client.RunInstances(runRequest).Reservation.Instances[0].InstanceId;
             Console.WriteLine("Launch Instance {0}", instanceId);
 
@@ -159,77 +227,46 @@ namespace AwsEC2Sample1
             } while (instance.State.Name == "pending" || instance.State.Name == "running");
 
 
-            // Create new security Group 
-            try
-            {
-                CreateSecurityGroupRequest securityGroupRequest = new CreateSecurityGroupRequest();
-                securityGroupRequest.GroupName = SAMPLE_NAME;
-                securityGroupRequest.Description = SAMPLE_LONG_UNIQUE_NAME;
-                ec2.CreateSecurityGroup(securityGroupRequest);
-            }
-            catch (AmazonEC2Exception ae)
-            {
-                if (string.Equals(ae.ErrorCode, "InvalidGroup.Duplicate", StringComparison.InvariantCulture))
-                    Console.WriteLine(ae.Message);
-                else throw;
-            }
-
-            // add ip ranges
-            String ipSource = "0.0.0.0/0";
-            List<String> ipRanges = new List<String>();
-            ipRanges.Add(ipSource);
-
-            List<IpPermission> ipPermissions = new List<IpPermission>();
-            IpPermission tcpSSH = new IpPermission() { IpProtocol = "tcp", FromPort = 22, ToPort = 22, IpRanges = ipRanges };
-            ipPermissions.Add(tcpSSH);
-            IpPermission tcpHTTP = new IpPermission() { IpProtocol = "tcp", FromPort = 80, ToPort = 80, IpRanges = ipRanges };
-            ipPermissions.Add(tcpHTTP);
-            IpPermission tcpHTTPS = new IpPermission() { IpProtocol = "tcp", FromPort = 443, ToPort = 443, IpRanges = ipRanges };
-            ipPermissions.Add(tcpHTTPS);
-            IpPermission tcpMYSQL = new IpPermission() { IpProtocol = "tcp", FromPort = 3306, ToPort = 3306, IpRanges = ipRanges };
-            ipPermissions.Add(tcpMYSQL);
-            IpPermission tcpRDP = new IpPermission() { IpProtocol = "tcp", FromPort = 3389, ToPort = 3389, IpRanges = ipRanges };
-            ipPermissions.Add(tcpRDP);
-
-            try
-            {
-                // Authorize the ports to be used.
-                AuthorizeSecurityGroupIngressRequest ipPermissionsRequest = new AuthorizeSecurityGroupIngressRequest();
-                ipPermissionsRequest.IpPermissions = ipPermissions;
-                ipPermissionsRequest.GroupName = SAMPLE_NAME;
-                ec2.AuthorizeSecurityGroupIngress(ipPermissionsRequest);
-            }
-            catch (AmazonEC2Exception ae)
-            {
-                if (String.Equals(ae.ErrorCode, "InvalidPermission.Duplicate", StringComparison.InvariantCulture))
-                    Console.WriteLine(ae.Message);
-                else
-                    throw;
-            }
-
             // Terminate instance
+            Console.WriteLine("Terminate Instances " + instanceId.ToString());
             ec2Client.TerminateInstances(new TerminateInstancesRequest
             {
                 InstanceIds = new List<string>() { instanceId }
             });
 
             // Delete key pair created for sample.
+            Console.WriteLine("Delete KeyPair " + newKeyPair.KeyName);
             ec2Client.DeleteKeyPair(new DeleteKeyPairRequest { KeyName = newKeyPair.KeyName });
+            
+            try
+            {
+                var s3Client = new AmazonS3Client();
+                var listResponse = s3Client.ListObjects(new ListObjectsRequest
+                {
+                    BucketName = bucketName
+                });
+                if (listResponse.S3Objects.Count > 0)
+                {
+                    Console.WriteLine("Found results file {0} in S3 bucket {1}", listResponse.S3Objects[0].Key, bucketName);
+                }
 
-            var s3Client = new AmazonS3Client();
-            var listResponse = s3Client.ListObjects(new ListObjectsRequest
+                // Delete bucket created for sample.
+                AmazonS3Util.DeleteS3BucketWithObjects(s3Client, bucketName);
+                Console.WriteLine("Deleted S3 bucket created for sample.");
+            }
+            catch (Exception ex)
             {
-                BucketName = bucketName
-            });
-            if (listResponse.S3Objects.Count > 0)
-            {
-                Console.WriteLine("Found results file {0} in S3 bucket {1}", listResponse.S3Objects[0].Key, bucketName);
+                Console.WriteLine(ex.ToString());
+                Console.WriteLine();
             }
 
-            // Delete bucket created for sample.
-            AmazonS3Util.DeleteS3BucketWithObjects(s3Client, bucketName);
-            Console.WriteLine("Deleted S3 bucket created for sample.");
-
+            if (!string.IsNullOrEmpty(secGroupId)) {
+                Console.WriteLine("Delete SecurityGroup " + secGroupId);
+                DeleteSecurityGroupRequest delSecGroupReq = new DeleteSecurityGroupRequest();
+                delSecGroupReq.GroupId = secGroupId;
+                DeleteSecurityGroupResponse delSecGroupResp = ec2Client.DeleteSecurityGroup(delSecGroupReq);
+            }
+            
             DeleteInstanceProfile();
             Console.WriteLine("Delete Instance Profile created for sample.");
 
