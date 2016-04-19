@@ -260,18 +260,30 @@ namespace AwsEC2Sample1
                 Console.WriteLine();
             }
 
+            // delete Security Group
             if (!string.IsNullOrEmpty(secGroupId)) {
-                Console.WriteLine("Delete SecurityGroup " + secGroupId);
-                DeleteSecurityGroupRequest delSecGroupReq = new DeleteSecurityGroupRequest();
-                delSecGroupReq.GroupId = secGroupId;
-                DeleteSecurityGroupResponse delSecGroupResp = ec2Client.DeleteSecurityGroup(delSecGroupReq);
+                try
+                {
+                    Console.WriteLine("Delete SecurityGroup " + secGroupId);
+                    DeleteSecurityGroupRequest delSecGroupReq = new DeleteSecurityGroupRequest();
+                    delSecGroupReq.GroupId = secGroupId;
+                    DeleteSecurityGroupResponse delSecGroupResp = ec2Client.DeleteSecurityGroup(delSecGroupReq);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.ToString());
+                    Console.WriteLine();
+                }
             }
-            
-            DeleteInstanceProfile();
+
+            Thread.Sleep(1000); 
+
             Console.WriteLine("Delete Instance Profile created for sample.");
+            DeleteInstanceProfile();            
 
             Console.WriteLine("Instance terminated, push enter to exit the program");
             Console.Read();
+
         }
 
         /// <summary>
