@@ -198,6 +198,36 @@ namespace AwsEC2Sample1
             });
             Console.WriteLine("Adding Name Tag to instance");
 
+            // rds client
+            Amazon.RDS.AmazonRDSConfig rdsConf = new Amazon.RDS.AmazonRDSConfig();
+            rdsConf.ServiceURL = AWSConfigSettings.AWSServiceUrl;
+            Amazon.RDS.AmazonRDSClient rdsClient = new Amazon.RDS.AmazonRDSClient(credentials, rdsConf);
+            
+            // create Database Cluster with aurora DB
+            string dbClusterIdentifier = string.Empty;
+            try
+            {
+
+                Amazon.RDS.Model.CreateDBClusterRequest createClusterReq = new Amazon.RDS.Model.CreateDBClusterRequest();
+                createClusterReq.DatabaseName = "betsnaps-cluster-" + SAMPLE_NAME;
+                createClusterReq.DBClusterIdentifier = "sample-cluster-" + SAMPLE_LONG_UNIQUE_NAME;
+                createClusterReq.Engine = "aurora";
+                if (!string.IsNullOrEmpty(secGroupId))
+                {
+                    createClusterReq.VpcSecurityGroupIds.Add(secGroupId);
+                }
+                createClusterReq.MasterUserPassword = RESOURCDE_POSTFIX;
+                createClusterReq.MasterUsername = "root";
+
+                Amazon.RDS.Model.CreateDBClusterResponse createClusterResp = rdsClient.CreateDBCluster(createClusterReq);
+                Amazon.RDS.Model.DBCluster createdCluster = createClusterResp.DBCluster;
+                Console.WriteLine("Created DBCluster with Id " + createdCluster.DBClusterIdentifier);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                Console.WriteLine();
+            }
 
             Console.WriteLine("Waiting for EC2 Instance to stop");
             // The script put in the user data will shutdown the instance when it is complete.  Wait
@@ -256,9 +286,28 @@ namespace AwsEC2Sample1
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.ToString());
+                Console.WriteLine(ex.Message);
                 Console.WriteLine();
             }
+
+            // delete DB Cluster
+            try
+            {
+                if (!string.IsNullOrEmpty(dbClusterIdentifier))
+                {
+                    Amazon.RDS.Model.DeleteDBClusterRequest delClusterReq = new Amazon.RDS.Model.DeleteDBClusterRequest();
+                    delClusterReq.DBClusterIdentifier = dbClusterIdentifier;
+                    Amazon.RDS.Model.DeleteDBClusterResponse delClusterResp = rdsClient.DeleteDBCluster(delClusterReq);
+                    Console.WriteLine("Delete Cluster Request with Id " + dbClusterIdentifier + " returned " + delClusterResp.HttpStatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                Console.WriteLine();
+            }
+
+ 
 
             // delete Security Group
             if (!string.IsNullOrEmpty(secGroupId)) {
@@ -271,7 +320,7 @@ namespace AwsEC2Sample1
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.ToString());
+                    Console.WriteLine(ex.Message);
                     Console.WriteLine();
                 }
             }
