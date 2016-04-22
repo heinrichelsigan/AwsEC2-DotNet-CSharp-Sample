@@ -32,6 +32,7 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Amazon.S3.Util;
 using System.IO;
+using System.Net;
 
 namespace AwsEC2Sample1
 {
@@ -337,8 +338,8 @@ namespace AwsEC2Sample1
         /// </summary>
         /// <param name="ref ec2Client"></param>
         /// <param name="secGroupId"></param>
-        /// <returns></returns>
-        static System.Net.HttpStatusCode CreateSecurityGroup(AmazonEC2Client ec2Client, ref string secGroupId)
+        /// <returns>HttpStatusCode</returns>
+        static HttpStatusCode CreateSecurityGroup(AmazonEC2Client ec2Client, ref string secGroupId)
         {
             CreateSecurityGroupRequest securityGroupRequest = new CreateSecurityGroupRequest();
             securityGroupRequest.GroupName = SAMPLE_NAME;
@@ -391,8 +392,8 @@ namespace AwsEC2Sample1
         /// </summary>
         /// <param name="rdsClient">Amazon.RDS.AmazonRDSClient</param>
         /// <param name="dbClusterIdentifier">Identifier of RDS DatabaseCluster 2 delete</param>
-        /// <returns></returns>
-        static System.Net.HttpStatusCode DeleteDBClusterRDS(Amazon.RDS.AmazonRDSClient rdsClient, string dbClusterIdentifier)
+        /// <returns>HttpStatusCode</returns>
+        static HttpStatusCode DeleteDBClusterRDS(Amazon.RDS.AmazonRDSClient rdsClient, string dbClusterIdentifier)
         {
             if (!string.IsNullOrEmpty(dbClusterIdentifier))
             {
@@ -411,7 +412,7 @@ namespace AwsEC2Sample1
         /// <param name="ec2Client">EC2Client</param>
         /// <param name="securityGroupId">Identifier of SecurityGroup 2 delete</param>
         /// <returns>HttpStatusCode</returns>
-        static System.Net.HttpStatusCode DeleteSecurityGroup(AmazonEC2Client ec2Client, string securityGroupId)
+        static HttpStatusCode DeleteSecurityGroup(AmazonEC2Client ec2Client, string securityGroupId)
         {
             if (!string.IsNullOrEmpty(securityGroupId))
             {
@@ -506,4 +507,3 @@ namespace AwsEC2Sample1
         }
     }
 }
-
