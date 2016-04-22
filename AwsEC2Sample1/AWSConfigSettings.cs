@@ -10,7 +10,7 @@ namespace AwsEC2Sample1
     internal static class AWSConfigSettings
     {
         const string PROTO = "https://";
-        const string DOMAIN = "amazonaws.com";
+        const string DOMAIN = "amazonaws.com"; //amazonaws.com
         const char DOT = '.';
 
         /// <summary>
@@ -84,14 +84,14 @@ namespace AwsEC2Sample1
         {
             get
             {
-                string region = "eu-west-1";
+                string region = "eu-central-1";
                 try
                 {
                     region = AWSConfigSettings.AWSConfigGetKey("AWSRegion");
                 }
                 catch (Exception)
                 {
-                    region = "eu-west-1";
+                    region = "ap-southeast-2";
                 }
                 return region;
             }
