@@ -198,10 +198,32 @@ namespace AwsEC2Sample1
             });
             Console.WriteLine("Adding Name Tag to instance");
 
+            // create ElastiCache Cluster
+            try
+            {
+                Amazon.ElastiCache.AmazonElastiCacheConfig eCacheConfig = new Amazon.ElastiCache.AmazonElastiCacheConfig();
+                eCacheConfig.ServiceURL = AWSConfigSettings.AWSServiceUrl;
+                Amazon.ElastiCache.AmazonElastiCacheClient eCacheClient = new Amazon.ElastiCache.AmazonElastiCacheClient();
+                // List<string> x = new List<string>();
+                // x.Add(secGroupId);
+                // Amazon.ElastiCache.Model.CreateCacheClusterRequest eCacheReq = new Amazon.ElastiCache.Model.CreateCacheClusterRequest(
+                //    "cache-cluster" + SAMPLE_NAME, 2, "cache.t2.medium", "memcached", x);
+                Amazon.ElastiCache.Model.CreateCacheClusterRequest eCacheReq = new Amazon.ElastiCache.Model.CreateCacheClusterRequest(
+                                    "Christian", 2, "cache.t2.medium", "memcached", new List<string>());
+                
+                Amazon.ElastiCache.Model.CreateCacheClusterResponse eCacheResp = eCacheClient.CreateCacheCluster(eCacheReq);
+                Console.WriteLine("Cache Cluster Created" + eCacheResp.HttpStatusCode.ToString());
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                Console.WriteLine();
+            }
+
             // rds client
             Amazon.RDS.AmazonRDSConfig rdsConf = new Amazon.RDS.AmazonRDSConfig();
             rdsConf.ServiceURL = AWSConfigSettings.AWSServiceUrl;
-            Amazon.RDS.AmazonRDSClient rdsClient = new Amazon.RDS.AmazonRDSClient(credentials, rdsConf);
+            Amazon.RDS.AmazonRDSClient rdsClient = new Amazon.RDS.AmazonRDSClient();
             
             // create Database Cluster with aurora DB
             string dbClusterIdentifier = string.Empty;
