@@ -108,13 +108,7 @@ namespace AwsEC2Sample1
             // Create new security Group 
             try
             {
-                CreateSecurityGroupRequest securityGroupRequest = new CreateSecurityGroupRequest();
-                securityGroupRequest.GroupName = SAMPLE_NAME;
-                securityGroupRequest.Description = SAMPLE_LONG_UNIQUE_NAME;
-                CreateSecurityGroupResponse secRes =  ec2Client.CreateSecurityGroup(securityGroupRequest);
-                Console.WriteLine("Created security Group with GroupId " + secRes.GroupId);
-                secGroupId = secRes.GroupId;   
-                Console.WriteLine(secRes.ResponseMetadata);
+                System.Net.HttpStatusCode createSecGrCode = CreateSecurityGroup(ec2Client, ref secGroupId);
             }
             catch (AmazonEC2Exception ae)
             {
@@ -229,20 +223,8 @@ namespace AwsEC2Sample1
             string dbClusterIdentifier = string.Empty;
             try
             {
-
-                Amazon.RDS.Model.CreateDBClusterRequest createClusterReq = new Amazon.RDS.Model.CreateDBClusterRequest();
-                createClusterReq.DatabaseName = "betsnaps-cluster-" + SAMPLE_NAME;
-                createClusterReq.DBClusterIdentifier = "sample-cluster-" + SAMPLE_LONG_UNIQUE_NAME;
-                createClusterReq.Engine = "aurora";
-                if (!string.IsNullOrEmpty(secGroupId))
-                {
-                    createClusterReq.VpcSecurityGroupIds.Add(secGroupId);
-                }
-                createClusterReq.MasterUserPassword = RESOURCDE_POSTFIX;
-                createClusterReq.MasterUsername = "root";
-
-                Amazon.RDS.Model.CreateDBClusterResponse createClusterResp = rdsClient.CreateDBCluster(createClusterReq);
-                Amazon.RDS.Model.DBCluster createdCluster = createClusterResp.DBCluster;
+                Amazon.RDS.Model.DBCluster createdCluster = 
+                    CreateDBClusterRDS(rdsClient, SAMPLE_NAME, "aurora", "root", SAMPLE_LONG_UNIQUE_NAME, secGroupId, ref dbClusterIdentifier);
                 Console.WriteLine("Created DBCluster with Id " + createdCluster.DBClusterIdentifier);
             }
             catch (Exception ex)
@@ -315,13 +297,8 @@ namespace AwsEC2Sample1
             // delete DB Cluster
             try
             {
-                if (!string.IsNullOrEmpty(dbClusterIdentifier))
-                {
-                    Amazon.RDS.Model.DeleteDBClusterRequest delClusterReq = new Amazon.RDS.Model.DeleteDBClusterRequest();
-                    delClusterReq.DBClusterIdentifier = dbClusterIdentifier;
-                    Amazon.RDS.Model.DeleteDBClusterResponse delClusterResp = rdsClient.DeleteDBCluster(delClusterReq);
-                    Console.WriteLine("Delete Cluster Request with Id " + dbClusterIdentifier + " returned " + delClusterResp.HttpStatusCode);
-                }
+                System.Net.HttpStatusCode delClusterStatus = DeleteDBClusterRDS(rdsClient, dbClusterIdentifier);
+                Console.WriteLine("Delete Cluster Request with Id " + dbClusterIdentifier + " returned " + delClusterStatus.ToString());
             }
             catch (Exception ex)
             {
@@ -329,32 +306,122 @@ namespace AwsEC2Sample1
                 Console.WriteLine();
             }
 
- 
-
-            // delete Security Group
-            if (!string.IsNullOrEmpty(secGroupId)) {
-                try
-                {
-                    Console.WriteLine("Delete SecurityGroup " + secGroupId);
-                    DeleteSecurityGroupRequest delSecGroupReq = new DeleteSecurityGroupRequest();
-                    delSecGroupReq.GroupId = secGroupId;
-                    DeleteSecurityGroupResponse delSecGroupResp = ec2Client.DeleteSecurityGroup(delSecGroupReq);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex.Message);
-                    Console.WriteLine();
-                }
-            }
 
             Thread.Sleep(1000); 
 
             Console.WriteLine("Delete Instance Profile created for sample.");
-            DeleteInstanceProfile();            
+            DeleteInstanceProfile();
+
+            // delete Security Group
+
+            try
+            {
+                System.Net.HttpStatusCode delSecGroupStatus = DeleteSecurityGroup(ec2Client, secGroupId);
+                Console.WriteLine("Delete SecurityGroup " + secGroupId + " returned " + delSecGroupStatus.ToString());
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                Console.WriteLine();
+            }
+
 
             Console.WriteLine("Instance terminated, push enter to exit the program");
             Console.Read();
 
+        }
+
+
+        /// <summary>
+        /// CreateSecurityGroup
+        /// </summary>
+        /// <param name="ref ec2Client"></param>
+        /// <param name="secGroupId"></param>
+        /// <returns></returns>
+        static System.Net.HttpStatusCode CreateSecurityGroup(AmazonEC2Client ec2Client, ref string secGroupId)
+        {
+            CreateSecurityGroupRequest securityGroupRequest = new CreateSecurityGroupRequest();
+            securityGroupRequest.GroupName = SAMPLE_NAME;
+            securityGroupRequest.Description = SAMPLE_LONG_UNIQUE_NAME;
+            CreateSecurityGroupResponse secRes = ec2Client.CreateSecurityGroup(securityGroupRequest);
+            Console.WriteLine("Created security Group with GroupId " + secRes.GroupId);
+
+            secGroupId = secRes.GroupId;
+            Console.WriteLine(secRes.ResponseMetadata);
+            return secRes.HttpStatusCode;
+        }
+
+        /// <summary>
+        /// CreateDBClusterRDS
+        /// </summary>
+        /// <param name="rdsClient"></param>
+        /// <param name="databaseName"></param>
+        /// <param name="databaseEngine"></param>
+        /// <param name="MasterUsername"></param>
+        /// <param name="MasterUserPassword"></param>
+        /// <param name="secGroupId"></param>
+        /// <param name="ref dbClusterIdentifier"></param>
+        /// <returns></returns>
+        static Amazon.RDS.Model.DBCluster CreateDBClusterRDS(Amazon.RDS.AmazonRDSClient rdsClient, 
+            string databaseName, 
+            string databaseEngine,
+            string MasterUsername,
+            string MasterUserPassword,
+            string secGroupId, ref string dbClusterIdentifier)
+        {
+            Amazon.RDS.Model.CreateDBClusterRequest createClusterReq = new Amazon.RDS.Model.CreateDBClusterRequest();
+            createClusterReq.DatabaseName = databaseName;
+            createClusterReq.DBClusterIdentifier = dbClusterIdentifier;
+            createClusterReq.Engine = databaseEngine;
+            if (!string.IsNullOrEmpty(secGroupId))
+            {
+                createClusterReq.VpcSecurityGroupIds.Add(secGroupId);
+            }
+            createClusterReq.MasterUserPassword = MasterUserPassword;
+            createClusterReq.MasterUsername = MasterUsername;
+
+            Amazon.RDS.Model.CreateDBClusterResponse createClusterResp = rdsClient.CreateDBCluster(createClusterReq);
+            Amazon.RDS.Model.DBCluster createdCluster = createClusterResp.DBCluster;
+            dbClusterIdentifier = createdCluster.DBClusterIdentifier;
+            return createdCluster;
+        }
+
+        /// <summary>
+        /// DeleteDBClusterRDS
+        /// </summary>
+        /// <param name="rdsClient">Amazon.RDS.AmazonRDSClient</param>
+        /// <param name="dbClusterIdentifier">Identifier of RDS DatabaseCluster 2 delete</param>
+        /// <returns></returns>
+        static System.Net.HttpStatusCode DeleteDBClusterRDS(Amazon.RDS.AmazonRDSClient rdsClient, string dbClusterIdentifier)
+        {
+            if (!string.IsNullOrEmpty(dbClusterIdentifier))
+            {
+                throw new ArgumentException("Null or Empty DBClusterIdentifier which is needed for Amazon.RDS.Model.DeleteDBClusterRequest", "string dbClusterIdentifier");
+            }
+            Console.WriteLine("Deleting DeleteDBClusterRDS with identifier " + dbClusterIdentifier);
+            Amazon.RDS.Model.DeleteDBClusterRequest delClusterReq = new Amazon.RDS.Model.DeleteDBClusterRequest();
+            delClusterReq.DBClusterIdentifier = dbClusterIdentifier;
+            Amazon.RDS.Model.DeleteDBClusterResponse delClusterResp = rdsClient.DeleteDBCluster(delClusterReq);
+            return delClusterResp.HttpStatusCode;
+        }
+
+        /// <summary>
+        /// DeleteSecurityGroup
+        /// </summary>
+        /// <param name="ec2Client">EC2Client</param>
+        /// <param name="securityGroupId">Identifier of SecurityGroup 2 delete</param>
+        /// <returns>HttpStatusCode</returns>
+        static System.Net.HttpStatusCode DeleteSecurityGroup(AmazonEC2Client ec2Client, string securityGroupId)
+        {
+            if (!string.IsNullOrEmpty(securityGroupId))
+            {
+                throw new ArgumentException("Null or Empty securityGroupId which is needed for Amazon.EC2.Model.DeleteSecurityGroupRequest", "string securityGroupId");
+            }
+            Console.WriteLine("Deleting SecurityGroup " + securityGroupId);
+            DeleteSecurityGroupRequest delSecGroupReq = new DeleteSecurityGroupRequest();
+            delSecGroupReq.GroupId = securityGroupId;
+            DeleteSecurityGroupResponse delSecGroupResp = ec2Client.DeleteSecurityGroup(delSecGroupReq);
+            return delSecGroupResp.HttpStatusCode;
         }
 
         /// <summary>
@@ -439,3 +506,4 @@ namespace AwsEC2Sample1
         }
     }
 }
+
